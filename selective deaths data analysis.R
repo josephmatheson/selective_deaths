@@ -1,6 +1,15 @@
 library('ggplot2')
+library('scales')
+library('grid')
 library('MASS')
 library('ggrepel')
+library('egg')
+library('writexl')
+install.packages('writexl')
+install.packages('ggrepel')
+install.packages('egg')
+
+getwd()
 
 #imports full dataset
 fullselectivedeathsdata = read.table("Selective deaths/Dataset_Arabidopsis_Exposito-Alonso.txt", header = TRUE)
@@ -55,14 +64,14 @@ aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata <- aggregate(tuebinge
 #After the data has been aggregated into averages by replicate,
 #I still need to know the number of replicates to use in the equation for selective deaths.
 #This is easily accomplished in a frequency table called on the non-aggregated data
-nreplicatestableMLO <- table(madridlowwateroneseedselectivedeathsdata$Genotype_id)
-nreplicatestableMHO <- table(madridhighwateroneseedselectivedeathsdata$Genotype_id)
-nreplicatestableMLT <- table(madridlowwatertwentyseedsselectivedeathsdata$Genotype_id)
-nreplicatestableMHT <- table(madridhighwatertwentyseedsselectivedeathsdata$Genotype_id)
-nreplicatestableTLO <- table(tuebingenlowwateroneseedselectivedeathsdata$Genotype_id)
-nreplicatestableTHO <- table(tuebingenhighwateroneseedselectivedeathsdata$Genotype_id)
-nreplicatestableTLT <- table(tuebingenlowwatertwentyseedsselectivedeathsdata$Genotype_id)
-nreplicatestableTHT <- table(tuebingenhighwatertwentyseedsselectivedeathsdata$Genotype_id)
+nreplicatestableMLI <- table(madridlowwateroneseedselectivedeathsdata$Genotype_id)
+nreplicatestableMHI <- table(madridhighwateroneseedselectivedeathsdata$Genotype_id)
+nreplicatestableMLP <- table(madridlowwatertwentyseedsselectivedeathsdata$Genotype_id)
+nreplicatestableMHP <- table(madridhighwatertwentyseedsselectivedeathsdata$Genotype_id)
+nreplicatestableTLI <- table(tuebingenlowwateroneseedselectivedeathsdata$Genotype_id)
+nreplicatestableTHI <- table(tuebingenhighwateroneseedselectivedeathsdata$Genotype_id)
+nreplicatestableTLP <- table(tuebingenlowwatertwentyseedsselectivedeathsdata$Genotype_id)
+nreplicatestableTHP <- table(tuebingenhighwatertwentyseedsselectivedeathsdata$Genotype_id)
 
 #I sum the number of replicates for each table
 #to count up the total number of pots (replicates) in each environmental condition.
@@ -77,48 +86,126 @@ sum(nreplicatestableTHO)
 sum(nreplicatestableTLT)
 sum(nreplicatestableTHT)
 
-#Now I need to create a new column in the aggregated data to store the number of each replicate.
-#This can't be the right way to do this, but any time I don't create the column first,
-#the for loop throws an error.
-#It also will fill all the other values in the column with 0, even though this line
-#should ostensibly only affect the first entry in the column.
-aggregatedmadridlowwateroneseedselectivedeathsdata$Replicates[1] <- 0
-aggregatedmadridhighwateroneseedselectivedeathsdata$Replicates[1] <- 0
+#I need to add some new columns to the dataset for the main calculation loop.
+AddColumns <- function(environmentalconditiondataframe) {
+  environmentalconditiondataframe$Replicates <- c(1:nrow(environmentalconditiondataframe))
+  environmentalconditiondataframe$Selective_deaths_survival <- c(1:nrow(environmentalconditiondataframe))
+  environmentalconditiondataframe$Selective_deaths_births <- c(1:nrow(environmentalconditiondataframe))
+  environmentalconditiondataframe$Genotype_death_rate <- c(1:nrow(environmentalconditiondataframe))
+  environmentalconditiondataframe$Seeds_for_next_generation <- c(1:nrow(environmentalconditiondataframe))
+  environmentalconditiondataframe <- subset(environmentalconditiondataframe, select = -c(Field_site, Watering_treatment, Group.1))
+  names(environmentalconditiondataframe)[2] <- "Total_surviving_individuals"
+  names(environmentalconditiondataframe)[3] <- "Total_seeds_produced"
+  return(environmentalconditiondataframe)
+}
 
-aggregatedmadridlowwatertwentyseedsselectivedeathsdata$Replicates[1] <- 0
-aggregatedmadridhighwatertwentyseedsselectivedeathsdata$Replicates[1] <- 0
+fulldataframeMHI <- AddColumns(aggregatedmadridhighwateroneseedselectivedeathsdata)
+fulldataframeMHP <- AddColumns(aggregatedmadridhighwatertwentyseedsselectivedeathsdata)
+fulldataframeMLI <- AddColumns(aggregatedmadridlowwateroneseedselectivedeathsdata)
+fulldataframeMLP <- AddColumns(aggregatedmadridlowwatertwentyseedsselectivedeathsdata)
+fulldataframeTHI <- AddColumns(aggregatedtuebingenhighwateroneseedselectivedeathsdata)
+fulldataframeTHP <- AddColumns(aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata)
+fulldataframeTLI <- AddColumns(aggregatedtuebingenlowwateroneseedselectivedeathsdata)
+fulldataframeTLP <- AddColumns(aggregatedtuebingenlowwatertwentyseedsselectivedeathsdata)
 
-aggregatedtuebingenlowwateroneseedselectivedeathsdata$Replicates[1] <- 0
-aggregatedtuebingenhighwateroneseedselectivedeathsdata$Replicates[1] <- 0
+CalculateFullSelectiveDeaths <- function(environmentalconditiondataframe, nreplicatestable, isPopulation) {
+  for (i in 1:nrow(environmentalconditiondataframe)) {
+    environmentalconditiondataframe$Replicates[i] <- nreplicatestable[i]
+    environmentalconditiondataframe$Total_surviving_individuals[i] <- (environmentalconditiondataframe$Total_surviving_individuals[i] * environmentalconditiondataframe$Replicates[i])
+    environmentalconditiondataframe$Total_seeds_produced[i] <- (environmentalconditiondataframe$Total_seeds_produced[i] * environmentalconditiondataframe$Replicates[i])
+    if (isPopulation == 1) {
+      environmentalconditiondataframe$Genotype_death_rate[i] <- (30*environmentalconditiondataframe$Replicates[i] - environmentalconditiondataframe$Total_surviving_individuals[i]) / (30*environmentalconditiondataframe$Replicates[i])
+    } else {
+      environmentalconditiondataframe$Genotype_death_rate[i] <- (environmentalconditiondataframe$Replicates[i] - environmentalconditiondataframe$Total_surviving_individuals[i]) / (environmentalconditiondataframe$Replicates[i])
+    }
+    if (environmentalconditiondataframe$Total_surviving_individuals[i] > 0.0) {
+      environmentalconditiondataframe$Seeds_by_ind[i] <- environmentalconditiondataframe$Total_seeds_produced[i] / environmentalconditiondataframe$Total_surviving_individuals[i]
+    } else {
+      environmentalconditiondataframe$Seeds_by_ind[i] <- 0.0
+    }
+    if (isPopulation == 1) {
+      if (environmentalconditiondataframe$Total_seeds_produced[i] > 30.0*environmentalconditiondataframe$Replicates[i]) {
+        environmentalconditiondataframe$Seeds_for_next_generation[i] <- 30.0*environmentalconditiondataframe$Replicates[i]
+      } else {
+        environmentalconditiondataframe$Seeds_for_next_generation[i] <- environmentalconditiondataframe$Total_seeds_produced[i]
+      }
+    } else {
+      if (environmentalconditiondataframe$Total_seeds_produced[i] > 10.0*environmentalconditiondataframe$Replicates[i]) {
+        environmentalconditiondataframe$Seeds_for_next_generation[i] <- 10.0*environmentalconditiondataframe$Replicates[i]
+      } else {
+        environmentalconditiondataframe$Seeds_for_next_generation[i] <- environmentalconditiondataframe$Total_seeds_produced[i]
+      }
+    }
+  }
+  max_birth_rate <- max(environmentalconditiondataframe$Seeds_by_ind)
+  min_death_rate <- min(environmentalconditiondataframe$Genotype_death_rate)
+  for (i in 1:nrow(environmentalconditiondataframe)) {
+    if (isPopulation == 1) {
+      environmentalconditiondataframe$Selective_deaths_survival[i] <- (30*environmentalconditiondataframe$Replicates[i]) * (environmentalconditiondataframe$Genotype_death_rate[i] - min_death_rate)
+    } else {
+      environmentalconditiondataframe$Selective_deaths_survival[i] <- (environmentalconditiondataframe$Replicates[i]) * (environmentalconditiondataframe$Genotype_death_rate[i] - min_death_rate)
+    }
+    environmentalconditiondataframe$Selective_deaths_births[i] <- (max_birth_rate - environmentalconditiondataframe$Seeds_by_ind[i]) * environmentalconditiondataframe$Total_surviving_individuals[i]
+  }
+  return(environmentalconditiondataframe)
+}
 
-aggregatedtuebingenlowwatertwentyseedsselectivedeathsdata$Replicates[1] <- 0
-aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata$Replicates[1] <- 0
+fulldataframeMHI <- CalculateFullSelectiveDeaths(fulldataframeMHI, nreplicatestableMHI, 0)
+fulldataframeMHP <- CalculateFullSelectiveDeaths(fulldataframeMHP, nreplicatestableMHP, 1)
+fulldataframeMLI <- CalculateFullSelectiveDeaths(fulldataframeMLI, nreplicatestableMLI, 0)
+fulldataframeMLP <- CalculateFullSelectiveDeaths(fulldataframeMLP, nreplicatestableMLP, 1)
+fulldataframeTHI <- CalculateFullSelectiveDeaths(fulldataframeTHI, nreplicatestableTHI, 0)
+fulldataframeTHP <- CalculateFullSelectiveDeaths(fulldataframeTHP, nreplicatestableTHP, 1)
+fulldataframeTLI <- CalculateFullSelectiveDeaths(fulldataframeTLI, nreplicatestableTLI, 0)
+fulldataframeTLP <- CalculateFullSelectiveDeaths(fulldataframeTLP, nreplicatestableTLP, 1)
 
-#In order to do the whole thing in one for loop, I'm also going to create the column
-#for the selective deaths data right now.
-aggregatedmadridlowwateroneseedselectivedeathsdata$Selective_deaths_survival[1] <- 0
-aggregatedmadridhighwateroneseedselectivedeathsdata$Selective_deaths_survival[1] <- 0
+write_xlsx(fulldataframeMHI, 'Selective deaths/fulldataframeMHI.xlsx')
+write_xlsx(fulldataframeMHP, 'Selective deaths/fulldataframeMHP.xlsx')
+write_xlsx(fulldataframeMLI, 'Selective deaths/fulldataframeMLI.xlsx')
+write_xlsx(fulldataframeMLP, 'Selective deaths/fulldataframeMLP.xlsx')
+write_xlsx(fulldataframeTHI, 'Selective deaths/fulldataframeTHI.xlsx')
+write_xlsx(fulldataframeTHP, 'Selective deaths/fulldataframeTHP.xlsx')
+write_xlsx(fulldataframeTLI, 'Selective deaths/fulldataframeTLI.xlsx')
+write_xlsx(fulldataframeTLP, 'Selective deaths/fulldataframeTLP.xlsx')
 
-aggregatedmadridlowwatertwentyseedsselectivedeathsdata$Selective_deaths_survival[1] <- 0
-aggregatedmadridhighwatertwentyseedsselectivedeathsdata$Selective_deaths_survival[1] <- 0
+total_selective_deaths_survival_MHI <- sum(fulldataframeMHI$Selective_deaths_survival)
+total_selective_deaths_survival_MHP <- sum(fulldataframeMHP$Selective_deaths_survival)
 
-aggregatedtuebingenlowwateroneseedselectivedeathsdata$Selective_deaths_survival[1] <- 0
-aggregatedtuebingenhighwateroneseedselectivedeathsdata$Selective_deaths_survival[1] <- 0
+total_selective_deaths_births_MHI <- sum(fulldataframeMHI$Selective_deaths_births)
+total_selective_deaths_births_MHP <- sum(fulldataframeMHP$Selective_deaths_births)
+total_selective_deaths_births_MLI <- sum(fulldataframeMLI$Selective_deaths_births)
+total_selective_deaths_births_MLP <- sum(fulldataframeMLP$Selective_deaths_births)
+total_selective_deaths_births_THI <- sum(fulldataframeTHI$Selective_deaths_births)
+total_selective_deaths_births_THP <- sum(fulldataframeTHP$Selective_deaths_births)
+total_selective_deaths_births_TLI <- sum(fulldataframeTLI$Selective_deaths_births)
+total_selective_deaths_births_TLP <- sum(fulldataframeTLP$Selective_deaths_births)
 
-aggregatedtuebingenlowwatertwentyseedsselectivedeathsdata$Selective_deaths_survival[1] <- 0
-aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata$Selective_deaths_survival[1] <- 0
+total_seeds_for_next_generation_MHI <- sum(fulldataframeMHI$Seeds_for_next_generation)
+total_seeds_for_next_generation_MHP <- sum(fulldataframeMHP$Seeds_for_next_generation)
+total_seeds_for_next_generation_MLI <- sum(fulldataframeMLI$Seeds_for_next_generation)
+total_seeds_for_next_generation_MLP <- sum(fulldataframeMLP$Seeds_for_next_generation)
+total_seeds_for_next_generation_THI <- sum(fulldataframeTHI$Seeds_for_next_generation)
+total_seeds_for_next_generation_THP <- sum(fulldataframeTHP$Seeds_for_next_generation)
+total_seeds_for_next_generation_TLI <- sum(fulldataframeTLI$Seeds_for_next_generation)
+total_seeds_for_next_generation_TLP <- sum(fulldataframeTLP$Seeds_for_next_generation)
 
-aggregatedmadridlowwateroneseedselectivedeathsdata$Selective_deaths_births[1] <- 0
-aggregatedmadridhighwateroneseedselectivedeathsdata$Selective_deaths_births[1] <- 0
+proportion_deaths_selective_births_MHI <- total_selective_deaths_births_MHI / (sum(fulldataframeMHI$Total_surviving_individuals) * max(fulldataframeMHI$Seeds_by_ind) - total_seeds_for_next_generation_MHI)
+proportion_deaths_selective_births_MHP <- total_selective_deaths_births_MHP / (sum(fulldataframeMHP$Total_surviving_individuals) * max(fulldataframeMHP$Seeds_by_ind) - total_seeds_for_next_generation_MHP)
+proportion_deaths_selective_births_MLI <- total_selective_deaths_births_MLI / (sum(fulldataframeMLI$Total_surviving_individuals) * max(fulldataframeMLI$Seeds_by_ind) - total_seeds_for_next_generation_MLI)
+proportion_deaths_selective_births_MLP <- total_selective_deaths_births_MLP / (sum(fulldataframeMLP$Total_surviving_individuals) * max(fulldataframeMLP$Seeds_by_ind) - total_seeds_for_next_generation_MLP)
+proportion_deaths_selective_births_THI <- total_selective_deaths_births_THI / (sum(fulldataframeTHI$Total_surviving_individuals) * max(fulldataframeTHI$Seeds_by_ind) - total_seeds_for_next_generation_THI)
+proportion_deaths_selective_births_THP <- total_selective_deaths_births_THP / (sum(fulldataframeTHP$Total_surviving_individuals) * max(fulldataframeTHP$Seeds_by_ind) - total_seeds_for_next_generation_THP)
+proportion_deaths_selective_births_TLI <- total_selective_deaths_births_TLI / (sum(fulldataframeTLI$Total_surviving_individuals) * max(fulldataframeTLI$Seeds_by_ind) - total_seeds_for_next_generation_TLI)
+proportion_deaths_selective_births_TLP <- total_selective_deaths_births_TLP / (sum(fulldataframeTLP$Total_surviving_individuals) * max(fulldataframeTLP$Seeds_by_ind) - total_seeds_for_next_generation_TLP)
 
-aggregatedmadridlowwatertwentyseedsselectivedeathsdata$Selective_deaths_births[1] <- 0
-aggregatedmadridhighwatertwentyseedsselectivedeathsdata$Selective_deaths_births[1] <- 0
-
-aggregatedtuebingenlowwateroneseedselectivedeathsdata$Selective_deaths_births[1] <- 0
-aggregatedtuebingenhighwateroneseedselectivedeathsdata$Selective_deaths_births[1] <- 0
-
-aggregatedtuebingenlowwatertwentyseedsselectivedeathsdata$Selective_deaths_births[1] <- 0
-aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata$Selective_deaths_births[1] <- 0
+proportion_deaths_selective_births_MHI
+proportion_deaths_selective_births_MHP
+proportion_deaths_selective_births_MLI
+proportion_deaths_selective_births_MLP
+proportion_deaths_selective_births_THI
+proportion_deaths_selective_births_THP
+proportion_deaths_selective_births_TLI
+proportion_deaths_selective_births_TLP
 
 #The aggregation by replicate averages across all numbers in each replicate.
 #The problem is that the seed numbers average across all numbers, including the zeroes.
@@ -1716,6 +1803,8 @@ mean(biasvectorbirthsMLO)
 
 #Following lines use the estimate of bias from above to adjust number of selective deaths
 #A line at the end shows the unadjusted number of selective deaths for comparison
+
+
 aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata$Adjusted_selective_deaths_births[1] <- 0
 for (i in 1:nrow(aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata)) {
   aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata$Adjusted_selective_deaths_births[i] <- ((max_birth_rate_THT - 9.71) - aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata$Seeds_by_ind[i]) * aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata$Surviving_individuals_pot[i]
@@ -1869,14 +1958,14 @@ average_seed_death_rate_MLT
 average_seed_death_rate_MHO
 average_seed_death_rate_MLO
 
-adjusted_proportion_juvenile_deaths_selective_THT <- adjusted_total_selective_deaths_births_THT / total_seeds_possible_THT
-adjusted_proportion_juvenile_deaths_selective_TLT <- adjusted_total_selective_deaths_births_TLT / total_seeds_possible_TLT
-adjusted_proportion_juvenile_deaths_selective_THO <- adjusted_total_selective_deaths_births_THO / total_seeds_possible_THO
-adjusted_proportion_juvenile_deaths_selective_TLO <- adjusted_total_selective_deaths_births_TLO / total_seeds_possible_TLO
-adjusted_proportion_juvenile_deaths_selective_MHT <- total_selective_deaths_births_MHT / total_seeds_possible_MHT
-adjusted_proportion_juvenile_deaths_selective_MLT <- adjusted_total_selective_deaths_births_MLT / total_seeds_possible_MLT
-adjusted_proportion_juvenile_deaths_selective_MHO <- adjusted_total_selective_deaths_births_MHO / total_seeds_possible_MHO
-adjusted_proportion_juvenile_deaths_selective_MLO <- adjusted_total_selective_deaths_births_MLO / total_seeds_possible_MLO
+adjusted_proportion_juvenile_deaths_selective_THT <- adjusted_total_selective_deaths_births_THT / (total_seeds_possible_THT - total_seeds_for_next_generation_THP)
+adjusted_proportion_juvenile_deaths_selective_TLT <- adjusted_total_selective_deaths_births_TLT / (total_seeds_possible_TLT - total_seeds_for_next_generation_TLP)
+adjusted_proportion_juvenile_deaths_selective_THO <- adjusted_total_selective_deaths_births_THO / (total_seeds_possible_THO - total_seeds_for_next_generation_THI)
+adjusted_proportion_juvenile_deaths_selective_TLO <- adjusted_total_selective_deaths_births_TLO / (total_seeds_possible_TLO - total_seeds_for_next_generation_TLI)
+adjusted_proportion_juvenile_deaths_selective_MHT <- total_selective_deaths_births_MHT / (total_seeds_possible_MHT - total_seeds_for_next_generation_MHP)
+adjusted_proportion_juvenile_deaths_selective_MLT <- adjusted_total_selective_deaths_births_MLT / (total_seeds_possible_MLT - total_seeds_for_next_generation_MLP)
+adjusted_proportion_juvenile_deaths_selective_MHO <- adjusted_total_selective_deaths_births_MHO / (total_seeds_possible_MHO - total_seeds_for_next_generation_MHI)
+adjusted_proportion_juvenile_deaths_selective_MLO <- adjusted_total_selective_deaths_births_MLO / (total_seeds_possible_MLO - total_seeds_for_next_generation_MLI)
 
 adjusted_proportion_juvenile_deaths_selective_THT
 adjusted_proportion_juvenile_deaths_selective_TLT
@@ -1887,28 +1976,42 @@ adjusted_proportion_juvenile_deaths_selective_MLT
 adjusted_proportion_juvenile_deaths_selective_MHO
 adjusted_proportion_juvenile_deaths_selective_MLO
 
+adjusted_total_selective_deaths_births <- adjusted_total_selective_deaths_births_MHO + adjusted_total_selective_deaths_births_MLO + total_selective_deaths_births_MHT + adjusted_total_selective_deaths_births_MLT + adjusted_total_selective_deaths_births_THO + adjusted_total_selective_deaths_births_TLO + adjusted_total_selective_deaths_births_THT + adjusted_total_selective_deaths_births_TLT
+adjusted_total_selective_deaths_births
+
+total_deaths_births <- (total_seeds_possible_MHO - total_seeds_for_next_generation_MHI) + (total_seeds_possible_MLO - total_seeds_for_next_generation_MLI) + (total_seeds_possible_MHT - total_seeds_for_next_generation_MHP) + (total_seeds_possible_MLT - total_seeds_for_next_generation_MLP) + (total_seeds_possible_THO - total_seeds_for_next_generation_THI) + (total_seeds_possible_TLO - total_seeds_for_next_generation_TLI) + (total_seeds_possible_THT - total_seeds_for_next_generation_THP) + (total_seeds_possible_TLT - total_seeds_for_next_generation_TLP)
+total_deaths_births
+
+adjusted_total_selective_deaths_births / total_deaths_births
+
 #Following lines make a data frame out of reproductive excess and proportion of deaths which are selective
 #at the life history stage of seed production, to produce a scatterplot of the two
 #Ideally, the data from both life history stages would be in the same data frame, but because
 #the density conditions need to be treated separately for the other life history stage,
 #it's easier for me to just give those different data frames.
 scatterplotbirthsdataframe <- data.frame(
-  environmental_condition = c("MLO", "MLT", "MHO", "MHT", "TLO", "TLT", "THO", "THT"),
+  environmental_condition = c("MLI", "MLP", "MHI", "MHP", "TLI", "TLP", "THI", "THP"),
   reproductive_excess = c(kMLO, kMLT, kMHO, kMHT, kTLO, kTLT, kTHO, kTHT),
   proportion_of_deaths_selective = c(adjusted_proportion_juvenile_deaths_selective_MLO, adjusted_proportion_juvenile_deaths_selective_MLT, adjusted_proportion_juvenile_deaths_selective_MHO, adjusted_proportion_juvenile_deaths_selective_MHT, adjusted_proportion_juvenile_deaths_selective_TLO, adjusted_proportion_juvenile_deaths_selective_TLT, adjusted_proportion_juvenile_deaths_selective_THO, adjusted_proportion_juvenile_deaths_selective_THT)
   )
 
 scatterplotlowdensitydeathsdataframe <- data.frame(
-  environmental_condition = c("MLO", "MHO", "TLO", "THO"),
+  environmental_condition = c("MLI", "MHI", "TLI", "THI"),
   reproductive_excess = c(kMLO, kMHO, kTLO, kTHO),
   proportion_of_deaths_selective = c(adjusted_proportion_deaths_selective_MLO, adjusted_proportion_deaths_selective_MHO, adjusted_proportion_deaths_selective_TLO, adjusted_proportion_deaths_selective_THO)
 )
 
 scatterplothighdensitydeathsdataframe <- data.frame(
-  environmental_condition = c("MLT", "MHT", "TLT", "THT"),
+  environmental_condition = c("MLP", "MHP", "TLP", "THP"),
   reproductive_excess = c(kMLT, kMHT, kTLT, kTHT),
   proportion_of_deaths_selective = c(adjusted_proportion_deaths_selective_MLT, adjusted_proportion_deaths_selective_MHT, adjusted_proportion_deaths_selective_TLT, adjusted_proportion_deaths_selective_THT)
 )
+
+cor.test(scatterplotbirthsdataframe$reproductive_excess, scatterplotbirthsdataframe$proportion_of_deaths_selective, method = "spearman")
+cor.test(scatterplothighdensitydeathsdataframe$reproductive_excess, scatterplothighdensitydeathsdataframe$proportion_of_deaths_selective, method = "spearman")
+cor.test(scatterplotlowdensitydeathsdataframe$reproductive_excess, scatterplotlowdensitydeathsdataframe$proportion_of_deaths_selective, method = "spearman")
+pvaluesexcessvspropdeathsselective <- c(0.01071, 0.4167, 0.08333)
+pchisq(-2*sum(log(pvaluesexcessvspropdeathsselective)), 6, lower.tail = FALSE)
 
 resultsscatterplotbirths <- ggplot(data = scatterplotbirthsdataframe, aes(x = reproductive_excess, y = proportion_of_deaths_selective)) +
   geom_text(aes(label = environmental_condition))
@@ -1923,21 +2026,58 @@ resultsscatterplotbirths3 <- ggplot(data = scatterplotbirthsdataframe, aes(x = r
 resultsscatterplotbirths3 +
   geom_text_repel() +
   theme_classic() +
-  ylim(0.0, 1.2)
+  ylim(0.0, 1.2) +
+  xlab("Reproductive excess") +
+  ylab("Proportion of deaths selective")
+
 
 resultsscatterplotlowdensitydeaths <- ggplot(data = scatterplotlowdensitydeathsdataframe, aes(x = reproductive_excess, y = proportion_of_deaths_selective, label = environmental_condition)) +
   geom_point()
 resultsscatterplotlowdensitydeaths +
   geom_text_repel() +
   theme_classic() +
-  ylim(0.0, 1.2)
+  ylim(0.0, 1.2) +
+  xlab("Reproductive excess") +
+  ylab("Proportion of deaths selective")
 
 resultsscatterplothighdensitydeaths <- ggplot(data = scatterplothighdensitydeathsdataframe, aes(x = reproductive_excess, y = proportion_of_deaths_selective, label = environmental_condition)) +
   geom_point()
 resultsscatterplothighdensitydeaths +
   geom_text_repel() +
-  theme_classic() +
-  ylim(0.0, 1.2)
+  theme_bw(base_size = 15) +
+  theme(panel.grid = element_line(colour = "light gray"),
+        panel.grid.minor = element_blank()) +
+  ylim(0.0, 1.2) +
+  xlab("Reproductive excess") +
+  ylab("Proportion of deaths selective") +
+  annotate("text", x = 1400, y = 1.1, size = 4.5, label = "Spearmans rho = -0.6") 
+
+ggarrange(resultsscatterplotbirths3 +
+            geom_text_repel() +
+            theme(axis.text.x = element_blank(), 
+                  axis.ticks.x = element_blank(), 
+                  axis.title.x = element_blank(), 
+                  axis.title.y = element_text(size = 15),
+                  axis.text.y = element_text(size = 12),
+                  panel.background = element_rect(fill = "white"),
+                  panel.grid.major = element_line(colour = "light gray"),
+                  panel.border = element_rect(fill = NA)) +
+            xlim(0.0, 20000.0) +
+            ylim(0.0, 1.2) +
+            xlab("Reproductive excess") +
+            ylab("Proportion of deaths selective") +
+            annotate("text", x = 12000, y = 1.1, size = 4.5, label = "Spearmans rho = -0.8571"), 
+          resultsscatterplotlowdensitydeaths +
+            geom_text_repel() +
+            theme_bw(base_size = 15) +
+            theme(panel.grid = element_line(colour = "light gray"),
+                  panel.grid.minor = element_blank()) +
+            xlim(0.0, 20000.0) +
+            ylim(0.0, 1.2) +
+            xlab("Reproductive excess") +
+            ylab("Proportion of deaths selective") +
+            annotate("text", x = 12000, y = 1.1, size = 4.5, label = "Spearmans rho = -1.0"), 
+          nrow = 2)
 
 zoominonsmallbirthratesTLTplot <- ggplot(data = TLTnozeroesinbirthrate, aes(x = Seeds_by_ind)) +
   geom_histogram()
@@ -1962,3 +2102,500 @@ zoominonsmallbirthratesMHTplot <- ggplot(data = MHTnozeroesinbirthrate, aes(x = 
 zoominonsmallbirthratesMHTplot +
   theme_classic() +
   xlim(0.0, 6000.0)
+
+colnamesforgeneticmatrix <- unlist(read.table("Selective deaths/Genetic_distance_matrix.txt", nrow = 1, as.is = TRUE))
+geneticdistancematrix <- as.matrix(read.table("Selective deaths/Genetic_distance_matrix.txt", fill = TRUE, skip = 1, row.names = 1))
+
+#Note that genotype ID numbers 9098 and 9992 are in the selective deaths dataset,
+#but not the genetic distance dataset.
+#Those genotype ID numbers correspond to row numbers 224 and 514 in the selective deaths dataset.
+#To simplify things, the following lines create new data frames without those genotypes.
+MHIdataformatrix <- aggregatedmadridhighwateroneseedselectivedeathsdata[aggregatedmadridhighwateroneseedselectivedeathsdata$Genotype_id %in% colnamesforgeneticmatrix, ]
+MHPdataformatrix <- aggregatedmadridhighwatertwentyseedsselectivedeathsdata[aggregatedmadridhighwatertwentyseedsselectivedeathsdata$Genotype_id %in% colnamesforgeneticmatrix, ]
+MLIdataformatrix <- aggregatedmadridlowwateroneseedselectivedeathsdata[aggregatedmadridlowwateroneseedselectivedeathsdata$Genotype_id %in% colnamesforgeneticmatrix, ]
+MLPdataformatrix <- aggregatedmadridlowwatertwentyseedsselectivedeathsdata[aggregatedmadridlowwatertwentyseedsselectivedeathsdata$Genotype_id %in% colnamesforgeneticmatrix, ]
+THIdataformatrix <- aggregatedtuebingenhighwateroneseedselectivedeathsdata[aggregatedtuebingenhighwateroneseedselectivedeathsdata$Genotype_id %in% colnamesforgeneticmatrix, ]
+THPdataformatrix <- aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata[aggregatedtuebingenhighwatertwentyseedsselectivedeathsdata$Genotype_id %in% colnamesforgeneticmatrix, ]
+TLIdataformatrix <- aggregatedtuebingenlowwateroneseedselectivedeathsdata[aggregatedtuebingenlowwateroneseedselectivedeathsdata$Genotype_id %in% colnamesforgeneticmatrix, ]
+TLPdataformatrix <- aggregatedtuebingenlowwatertwentyseedsselectivedeathsdata[aggregatedtuebingenlowwatertwentyseedsselectivedeathsdata$Genotype_id %in% colnamesforgeneticmatrix, ]
+
+typeof(colnamesforgeneticmatrix)
+
+#This dataframe needs to have one entry for every pair of genotypes
+dataframeforgeneticdistanceMHI <- data.frame(
+  firstgenotypeID = c(1.0:132355.0),
+  secondgenotypeID = c(1.0:132355.0),
+  hammingdistance = c(1:132355),
+  survivalpairwiseselectivedeaths = c(1.0:132355.0),
+  birthspairwiseselectivedeaths = c(1.0:132355.0),
+  survivalpercentdeathsselective = c(1.0:132355.0),
+  birthspercentdeathsselective = c(1.0:132355.0)
+)
+
+dataframeforgeneticdistanceMLI <- data.frame(
+  firstgenotypeID = c(1.0:132355.0),
+  secondgenotypeID = c(1.0:132355.0),
+  hammingdistance = c(1:132355),
+  survivalpairwiseselectivedeaths = c(1.0:132355.0),
+  birthspairwiseselectivedeaths = c(1.0:132355.0),
+  survivalpercentdeathsselective = c(1.0:132355.0),
+  birthspercentdeathsselective = c(1.0:132355.0)
+)
+
+dataframeforgeneticdistanceTHI <- data.frame(
+  firstgenotypeID = c(1.0:132355.0),
+  secondgenotypeID = c(1.0:132355.0),
+  hammingdistance = c(1:132355),
+  survivalpairwiseselectivedeaths = c(1.0:132355.0),
+  birthspairwiseselectivedeaths = c(1.0:132355.0),
+  survivalpercentdeathsselective = c(1.0:132355.0),
+  birthspercentdeathsselective = c(1.0:132355.0)
+)
+
+dataframeforgeneticdistanceTLI <- data.frame(
+  firstgenotypeID = c(1.0:132355.0),
+  secondgenotypeID = c(1.0:132355.0),
+  hammingdistance = c(1:132355),
+  survivalpairwiseselectivedeaths = c(1.0:132355.0),
+  birthspairwiseselectivedeaths = c(1.0:132355.0),
+  survivalpercentdeathsselective = c(1.0:132355.0),
+  birthspercentdeathsselective = c(1.0:132355.0)
+)
+
+dataframeforgeneticdistanceMHP <- data.frame(
+  firstgenotypeID = c(1.0:132355.0),
+  secondgenotypeID = c(1.0:132355.0),
+  hammingdistance = c(1:132355),
+  survivalpairwiseselectivedeaths = c(1.0:132355.0),
+  birthspairwiseselectivedeaths = c(1.0:132355.0),
+  survivalpercentdeathsselective = c(1.0:132355.0),
+  birthspercentdeathsselective = c(1.0:132355.0)
+)
+
+dataframeforgeneticdistanceMLP <- data.frame(
+  firstgenotypeID = c(1.0:131841.0),
+  secondgenotypeID = c(1.0:131841.0),
+  hammingdistance = c(1:131841),
+  survivalpairwiseselectivedeaths = c(1.0:131841.0),
+  birthspairwiseselectivedeaths = c(1.0:131841.0),
+  survivalpercentdeathsselective = c(1.0:131841.0),
+  birthspercentdeathsselective = c(1.0:131841.0)
+)
+
+dataframeforgeneticdistanceTHP <- data.frame(
+  firstgenotypeID = c(1.0:132355.0),
+  secondgenotypeID = c(1.0:132355.0),
+  hammingdistance = c(1:132355),
+  survivalpairwiseselectivedeaths = c(1.0:132355.0),
+  birthspairwiseselectivedeaths = c(1.0:132355.0),
+  survivalpercentdeathsselective = c(1.0:132355.0),
+  birthspercentdeathsselective = c(1.0:132355.0)
+)
+
+dataframeforgeneticdistanceTLP <- data.frame(
+  firstgenotypeID = c(1.0:132355.0),
+  secondgenotypeID = c(1.0:132355.0),
+  hammingdistance = c(1:132355),
+  survivalpairwiseselectivedeaths = c(1.0:132355.0),
+  birthspairwiseselectivedeaths = c(1.0:132355.0),
+  survivalpercentdeathsselective = c(1.0:132355.0),
+  birthspercentdeathsselective = c(1.0:132355.0)
+)
+
+#Following function calculates selective deaths for survival and births for all combinations of genotypes,
+#as if each pair of genotypes was only competing against each other.
+#The function takes two dataframes as parameters.
+#The first df is one of the dataframes above, with two columns for genotype ID to cover all combinations of genotypes,
+#one column for Hamming distance, and columns for absolute number of selective deaths and percent deaths selective for survival and births.
+#The second df is one of the dataformatrix dfs above, which is the original dataframe for each environmental condition,
+#after having calculated replicates, but with the genotypes not in the Hamming distance matrix removed.
+#In addition, the function takes a third parameter simply to declare whether the environmental condition being calculated
+#has an individual plant per pot or a population of thirty seeds per pot, since that changes some calculations.
+#Note that this function will take minutes to run.
+CalculatePairwiseSelectiveDeaths <- function(dataframeforcalculation, environmentalconditiondataframe, isPopulation) {
+  counter <- 0
+  for (i in 1:(nrow(environmentalconditiondataframe) - 1)) {
+    for (j in (i+1):nrow(environmentalconditiondataframe)) {
+      counter <- counter + 1
+      dataframeforcalculation$firstgenotypeID[counter] <- environmentalconditiondataframe$Genotype_id[i]
+      dataframeforcalculation$secondgenotypeID[counter] <- environmentalconditiondataframe$Genotype_id[j]
+      dataframeforcalculation$hammingdistance[counter] <- geneticdistancematrix[j, i]
+      deathrate1 <- environmentalconditiondataframe$Genotype_death_rate[i]
+      deathrate2 <- environmentalconditiondataframe$Genotype_death_rate[j]
+      if (isPopulation == 0) {
+        if (deathrate1 < deathrate2) {
+          dataframeforcalculation$survivalpairwiseselectivedeaths[counter] <- environmentalconditiondataframe$Replicates[j] * (deathrate2 - deathrate1)
+          dataframeforcalculation$survivalpercentdeathsselective[counter] <- (dataframeforcalculation$survivalpairwiseselectivedeaths[counter] / (environmentalconditiondataframe$Replicates[j] + environmentalconditiondataframe$Replicates[i]))
+        } else {
+          dataframeforcalculation$survivalpairwiseselectivedeaths[counter] <- environmentalconditiondataframe$Replicates[i] * (deathrate1 - deathrate2)
+          if (dataframeforcalculation$survivalpairwiseselectivedeaths[counter] > 0.0) {
+            dataframeforcalculation$survivalpercentdeathsselective[counter] <- (dataframeforcalculation$survivalpairwiseselectivedeaths[counter] / (environmentalconditiondataframe$Replicates[i] + environmentalconditiondataframe$Replicates[j]))
+          } else {
+            dataframeforcalculation$survivalpercentdeathsselective[counter] <- 0.0
+          }
+        }
+      } else {
+        if (deathrate1 < deathrate2) {
+          dataframeforcalculation$survivalpairwiseselectivedeaths[counter] <- 30.0 * environmentalconditiondataframe$Replicates[j] * (deathrate2 - deathrate1)
+          dataframeforcalculation$survivalpercentdeathsselective[counter] <- (dataframeforcalculation$survivalpairwiseselectivedeaths[counter] / (30.0 * (environmentalconditiondataframe$Replicates[i] + environmentalconditiondataframe$Replicates[j])))
+        } else {
+          dataframeforcalculation$survivalpairwiseselectivedeaths[counter] <- 30.0 * environmentalconditiondataframe$Replicates[i] * (deathrate1 - deathrate2)
+          if (dataframeforcalculation$survivalpairwiseselectivedeaths[counter] > 0.0) {
+            dataframeforcalculation$survivalpercentdeathsselective[counter] <- (dataframeforcalculation$survivalpairwiseselectivedeaths[counter] / (30.0 * (environmentalconditiondataframe$Replicates[i] + environmentalconditiondataframe$Replicates[j])))
+          } else {
+            dataframeforcalculation$survivalpercentdeathsselective[counter] <- 0.0
+          }
+        }
+      }
+      birthrate1 <- environmentalconditiondataframe$Seeds_by_ind[i]
+      birthrate2 <- environmentalconditiondataframe$Seeds_by_ind[j]
+      if (birthrate1 > birthrate2) {
+        dataframeforcalculation$birthspairwiseselectivedeaths[counter] <- (birthrate1 - birthrate2) * environmentalconditiondataframe$Surviving_individuals_pot[j]
+        dataframeforcalculation$birthspercentdeathsselective[counter] <- dataframeforcalculation$birthspairwiseselectivedeaths[counter] / (birthrate1 * (environmentalconditiondataframe$Surviving_individuals_pot[i] + environmentalconditiondataframe$Surviving_individuals_pot[j]))
+      } else {
+        if (birthrate2 > 0.0) {
+          dataframeforcalculation$birthspairwiseselectivedeaths[counter] <- (birthrate2 - birthrate1) * environmentalconditiondataframe$Surviving_individuals_pot[i]
+          dataframeforcalculation$birthspercentdeathsselective[counter] <- dataframeforcalculation$birthspairwiseselectivedeaths[counter] / (birthrate2 * (environmentalconditiondataframe$Surviving_individuals_pot[i] + environmentalconditiondataframe$Surviving_individuals_pot[j]))
+        } else {
+          dataframeforcalculation$birthspairwiseselectivedeaths[counter] <- 0.0
+          dataframeforcalculation$birthspercentdeathsselective[counter] <- 0.0
+        }
+      }
+    }
+  }
+  return(dataframeforcalculation)
+}
+
+dataframeforgeneticdistanceMHI <- CalculatePairwiseSelectiveDeaths(dataframeforgeneticdistanceMHI, MHIdataformatrix, 0)
+dataframeforgeneticdistanceMLI <- CalculatePairwiseSelectiveDeaths(dataframeforgeneticdistanceMLI, MLIdataformatrix, 0)
+dataframeforgeneticdistanceTHI <- CalculatePairwiseSelectiveDeaths(dataframeforgeneticdistanceTHI, THIdataformatrix, 0)
+dataframeforgeneticdistanceTLI <- CalculatePairwiseSelectiveDeaths(dataframeforgeneticdistanceTLI, TLIdataformatrix, 0)
+dataframeforgeneticdistanceMHP <- CalculatePairwiseSelectiveDeaths(dataframeforgeneticdistanceMHP, MHPdataformatrix, 1)
+dataframeforgeneticdistanceMLP <- CalculatePairwiseSelectiveDeaths(dataframeforgeneticdistanceMLP, MLPdataformatrix, 1)
+dataframeforgeneticdistanceTHP <- CalculatePairwiseSelectiveDeaths(dataframeforgeneticdistanceTHP, THPdataformatrix, 1)
+dataframeforgeneticdistanceTLP <- CalculatePairwiseSelectiveDeaths(dataframeforgeneticdistanceTLP, TLPdataformatrix, 1)
+
+for (i in 1:515) {
+  if (is.na(MLPdataformatrix$Genotype_death_rate[i])) {
+    print(i)
+  }
+}
+
+#This code is backup code in case the function above doesn't work properly.
+#Make sure to reset the counter to zero before running the loop.
+#I can't think of a more elegant way to iterate through the different combinations of genotypes.
+counter <- 0
+for (i in 1:514) {
+  
+  for (j in (i+1):515) {
+    counter <- counter + 1
+    dataframeforgeneticdistance$firstgenotypeID[counter] <- MHIdataformatrix$Genotype_id[i]
+    dataframeforgeneticdistance$secondgenotypeID[counter] <- MHIdataformatrix$Genotype_id[j]
+    dataframeforgeneticdistance$hammingdistance[counter] <- geneticdistancematrix[j, i]
+    deathrate1 <- MHIdataformatrix$Genotype_death_rate[i]
+    deathrate2 <- MHIdataformatrix$Genotype_death_rate[j]
+    if (deathrate1 < deathrate2) {
+      dataframeforgeneticdistance$survivalpairwiseselectivedeaths[counter] <- (MHIdataformatrix$Replicates[j] - MHIdataformatrix$Surviving_individuals_pot[j]) - (MHIdataformatrix$Replicates[j] * deathrate1)
+      dataframeforgeneticdistance$survivalpercentdeathsselective[counter] <- (dataframeforgeneticdistance$survivalpairwiseselectivedeaths[counter] / (MHIdataformatrix$Replicates[j] + MHIdataformatrix$Replicates[i]))
+    } else {
+      dataframeforgeneticdistance$survivalpairwiseselectivedeaths[counter] <- (MHIdataformatrix$Replicates[i] - MHIdataformatrix$Surviving_individuals_pot[i]) - (MHIdataformatrix$Replicates[i] * deathrate2)
+      if (dataframeforgeneticdistance$survivalpairwiseselectivedeaths[counter] > 0.0) {
+        dataframeforgeneticdistance$survivalpercentdeathsselective[counter] <- (dataframeforgeneticdistance$survivalpairwiseselectivedeaths[counter] / (MHIdataformatrix$Replicates[i] + MHIdataformatrix$Replicates[j]))
+      } else {
+        dataframeforgeneticdistance$survivalpercentdeathsselective[counter] <- 0.0
+      }
+    }
+    birthrate1 <- MHIdataformatrix$Seeds_by_ind[i]
+    birthrate2 <- MHIdataformatrix$Seeds_by_ind[j]
+    if (birthrate1 > birthrate2) {
+      dataframeforgeneticdistance$birthspairwiseselectivedeaths[counter] <- (birthrate1 - birthrate2) * MHIdataformatrix$Surviving_individuals_pot[j]
+    } else {
+      dataframeforgeneticdistance$birthspairwiseselectivedeaths[counter] <- (birthrate2 - birthrate1) * MHIdataformatrix$Surviving_individuals_pot[i]
+    }
+    dataframeforgeneticdistance$birthspercentdeathsselective[counter] <- dataframeforgeneticdistance$birthspairwiseselectivedeaths[counter] / (MHIdataformatrix$Seeds_total_pot[i] + MHIdataformatrix$Seeds_total_pot[j])
+  }
+}
+
+
+#This version of the graph draws a violin plot in bins across the x-axis where the width
+#of the violin plot shows how many data points are in that bin.
+#It also draws a smoothed line through the data. A loess line would be ideal, but the loess method
+#in geom_smooth crashes my R when it tries to run on the 133k data points here.
+MHIsurvivalhammingvspropboxplot <- ggplot() +
+  geom_violin(data = dataframeforgeneticdistance, aes(group=cut_interval(hammingdistance, n = 18), x = hammingdistance, y = survivalpercentdeathsselective),
+              fill= "azure2", colour = "darkslategray4", scale = "count") +
+  geom_jitter(data = dataframeforgeneticdistance, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistance, aes(x = hammingdistance, y = survivalpercentdeathsselective),
+              se = TRUE, color = 'gold')
+
+#Given the lack of a relationship observed, a single scatterplot should suffice.
+MHIsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMHI, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2)
+
+#This version of the graph draws a violin plot in bins across the x-axis where the width
+#of the violin plot shows how many data points are in that bin.
+#It also draws a smoothed line through the data. A loess line would be ideal, but the loess method
+#in geom_smooth crashes my R when it tries to run on the 133k data points here.
+MHIbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMHI, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2)
+
+
+MHIsurvivalfinalgraph <- MHIsurvivalhammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.35, size = 5.5, label = "MHI\nSpearmans rho = 0.0004\np-value = 0.8811")
+MHIsurvivalfinalgraph
+
+MHIbirthsfinalgraph <- MHIbirthshammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.43, size = 5.5, label = "MHI\nSpearmans rho = 0.0139\np-value = 3.988e-7")
+MHIbirthsfinalgraph
+
+MLIsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMLI, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceMLI, aes(x = hammingdistance, y = survivalpercentdeathsselective),
+              se = TRUE, color = 'gold')
+MLIsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMLI, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2)
+MLIsurvivalfinalgraph <- MLIsurvivalhammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.73, size = 5.5, label = "MLI\nSpearmans rho = 0.096\np-value < 2.2e-16")
+MLIsurvivalfinalgraph
+
+MLIbirthshammingvspropboxplot <- ggplot() +
+  geom_violin(data = dataframeforgeneticdistanceMLI, aes(group=cut_interval(hammingdistance, n = 18), x = hammingdistance, y = birthspercentdeathsselective),
+              fill= "azure2", colour = "darkslategray4", scale = "count") +
+  geom_jitter(data = dataframeforgeneticdistanceMLI, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceMLI, aes(x = hammingdistance, y = birthspercentdeathsselective),
+              se = TRUE, color = 'gold')
+MLIbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMLI, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2)
+MLIbirthsfinalgraph <- MLIbirthshammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size = 20)) +
+  annotate("text", x = 140000, y = 0.73, size = 5.5, label = "MLI\nSpearmans rho = 0.029\np-value < 2.2e-16")
+MLIbirthsfinalgraph
+
+THIsurvivalhammingvspropboxplot <- ggplot() +
+  geom_violin(data = dataframeforgeneticdistanceTHI, aes(group=cut_interval(hammingdistance, n = 18), x = hammingdistance, y = survivalpercentdeathsselective),
+              fill= "azure2", colour = "darkslategray4", scale = "count") +
+  geom_jitter(data = dataframeforgeneticdistanceTHI, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceTHI, aes(x = hammingdistance, y = survivalpercentdeathsselective),
+              se = TRUE, color = 'gold')
+THIsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTHI, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2)
+THIsurvivalfinalgraph <- THIsurvivalhammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.4, size = 5.5, label = "THI\nSpearmans rho = -0.0056\np-value = 0.0416")
+THIsurvivalfinalgraph
+
+THIbirthshammingvspropboxplot <- ggplot() +
+  geom_violin(data = dataframeforgeneticdistanceTHI, aes(group=cut_interval(hammingdistance, n = 18), x = hammingdistance, y = birthspercentdeathsselective),
+              fill= "azure2", colour = "darkslategray4", scale = "count") +
+  geom_jitter(data = dataframeforgeneticdistanceTHI, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceTHI, aes(x = hammingdistance, y = birthspercentdeathsselective),
+              se = TRUE, color = 'gold')
+THIbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTHI, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2)
+THIbirthsfinalgraph <- THIbirthshammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.4, size = 5.5, label = "THI\nSpearmans rho = -0.0056\np-value = 0.04149")
+THIbirthsfinalgraph
+
+TLIsurvivalhammingvspropboxplot <- ggplot() +
+  geom_violin(data = dataframeforgeneticdistanceTLI, aes(group=cut_interval(hammingdistance, n = 18), x = hammingdistance, y = survivalpercentdeathsselective),
+              fill= "azure2", colour = "darkslategray4", scale = "count") +
+  geom_jitter(data = dataframeforgeneticdistanceTLI, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceTLI, aes(x = hammingdistance, y = survivalpercentdeathsselective),
+              se = TRUE, color = 'gold')
+TLIsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTLI, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2)
+TLIsurvivalfinalgraph <- TLIsurvivalhammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.45, size = 5.5, label = "TLI\nSpearmans rho = -0.00237\np-value = 0.3884")
+TLIsurvivalfinalgraph
+
+TLIbirthshammingvspropboxplot <- ggplot() +
+  geom_violin(data = dataframeforgeneticdistanceTLI, aes(group=cut_interval(hammingdistance, n = 18), x = hammingdistance, y = birthspercentdeathsselective),
+              fill= "azure2", colour = "darkslategray4", scale = "count") +
+  geom_jitter(data = dataframeforgeneticdistanceTLI, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceTLI, aes(x = hammingdistance, y = birthspercentdeathsselective),
+              se = TRUE, color = 'gold')
+TLIbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTLI, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2)
+TLIbirthsfinalgraph <- TLIbirthshammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.6, size = 5.5, label = "TLI\nSpearmans rho = 0.0413\np-value < 2.2e-16")
+TLIbirthsfinalgraph
+
+MHPsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMHP, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2)
+MHPsurvivalfinalgraph <- MHPsurvivalhammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.6, size = 5.5, label = "MHP\nSpearmans rho = 0.0111\np-value = 4.909e-5")
+MHPsurvivalfinalgraph
+
+MHPbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMHP, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceMHP, aes(x = hammingdistance, y = birthspercentdeathsselective),
+              se = TRUE, color = 'gold')
+MHPbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMHP, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2)
+MHPbirthsfinalgraph <- MHPbirthshammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 140000, y = 0.65, size = 5.5, label = "MHP\nSpearmans rho = -0.0258\np-value < 2.2e-16")
+MHPbirthsfinalgraph
+
+MLPsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMLP, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceMLP, aes(x = hammingdistance, y = survivalpercentdeathsselective),
+              se = TRUE, color = 'gold')
+MLPsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMLP, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2)
+MLPsurvivalfinalgraph <- MLPsurvivalhammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  ylim(-0.01, 1.01) +
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.7, size = 5.5, label = "MLP\nSpearmans rho = 0.0547\np-value < 2.2e-16")
+MLPsurvivalfinalgraph
+
+MLPbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMLP, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceMLP, aes(x = hammingdistance, y = birthspercentdeathsselective),
+              se = TRUE, color = 'gold')
+MLPbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceMLP, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2)
+MLPbirthsfinalgraph <- MLPbirthshammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") +
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.7, size = 5.5, label = "MLP\nSpearmans rho = 0.0455\np-value < 2.2e-16")
+MLPbirthsfinalgraph
+
+THPsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTHP, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceTHP, aes(x = hammingdistance, y = survivalpercentdeathsselective),
+              se = TRUE, color = 'gold')
+THPsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTHP, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2)
+THPsurvivalfinalgraph <- THPsurvivalhammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.35, size = 5.5, label = "THP\nSpearmans rho = -0.0085\np-value = 0.001995")
+THPsurvivalfinalgraph
+
+THPbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTHP, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceTHP, aes(x = hammingdistance, y = birthspercentdeathsselective),
+              se = TRUE, color = 'gold')
+THPbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTHP, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2)
+THPbirthsfinalgraph <- THPbirthshammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.6, size = 5.5, label = "THP\nSpearmans rho = -0.00288\np-value = 0.2942")
+THPbirthsfinalgraph
+
+TLPsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTLP, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceTLP, aes(x = hammingdistance, y = survivalpercentdeathsselective),
+              se = TRUE, color = 'gold')
+TLPsurvivalhammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTLP, aes(x = hammingdistance, y = survivalpercentdeathsselective), color="black", size=0.4, alpha=0.2)
+TLPsurvivalfinalgraph <- TLPsurvivalhammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 150000, y = 0.4, size = 5.5, label = "TLP\nSpearmans rho = -0.00813\np-value = 0.003085")
+TLPsurvivalfinalgraph
+
+TLPbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTLP, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2) +
+  geom_smooth(data = dataframeforgeneticdistanceTLP, aes(x = hammingdistance, y = birthspercentdeathsselective),
+              se = TRUE, color = 'gold')
+TLPbirthshammingvspropboxplot <- ggplot() +
+  geom_jitter(data = dataframeforgeneticdistanceTLP, aes(x = hammingdistance, y = birthspercentdeathsselective), color="black", size=0.4, alpha=0.2)
+TLPbirthsfinalgraph <- TLPbirthshammingvspropboxplot +
+  scale_x_continuous(name = "Hamming distance", labels = comma) +
+  labs(y = "Proportion of deaths selective") + 
+  theme_bw() + 
+  theme_classic(base_size = 9) + 
+  theme(text = element_text(size=20)) +
+  annotate("text", x = 140000, y = 0.7, size = 5.5, label = "TLP\nSpearmans rho = -0.0577\np-value < 2.2e-16")
+TLPbirthsfinalgraph
+
+for (i in nrow(dataframeforgeneticdistanceMLP)) {
+  if (dataframeforgeneticdistanceMLP$birthspercentdeathsselective[i] > 1.0) {
+    print(dataframeforgeneticdistanceMLP$firstgenotypeID[i])
+    print(dataframeforgeneticdistanceMLP$secondgenotypeID[i])
+  }
+}
+
+cor.test(dataframeforgeneticdistanceMHI$hammingdistance, dataframeforgeneticdistanceMHI$survivalpercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceMHI$hammingdistance, dataframeforgeneticdistanceMHI$birthspercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceMLI$hammingdistance, dataframeforgeneticdistanceMLI$survivalpercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceMLI$hammingdistance, dataframeforgeneticdistanceMLI$birthspercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceTHI$hammingdistance, dataframeforgeneticdistanceTHI$survivalpercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceTHI$hammingdistance, dataframeforgeneticdistanceTHI$birthspercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceTLI$hammingdistance, dataframeforgeneticdistanceTLI$survivalpercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceTLI$hammingdistance, dataframeforgeneticdistanceTLI$birthspercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceMHP$hammingdistance, dataframeforgeneticdistanceMHP$survivalpercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceMHP$hammingdistance, dataframeforgeneticdistanceMHP$birthspercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceMLP$hammingdistance, dataframeforgeneticdistanceMLP$survivalpercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceMLP$hammingdistance, dataframeforgeneticdistanceMLP$birthspercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceTHP$hammingdistance, dataframeforgeneticdistanceTHP$survivalpercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceTHP$hammingdistance, dataframeforgeneticdistanceTHP$birthspercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceTLP$hammingdistance, dataframeforgeneticdistanceTLP$survivalpercentdeathsselective, method = "spearman")
+cor.test(dataframeforgeneticdistanceTLP$hammingdistance, dataframeforgeneticdistanceTLP$birthspercentdeathsselective, method = "spearman")
+
